@@ -133,8 +133,132 @@
       <p style="margin: 6px 0; color: #58645d; font-size: 15px;"><strong>要帶的東西：</strong>示意：水、雨具、行動電源與舒適好走的鞋。</p>
       <p style="margin: 6px 0; color: #58645d; font-size: 15px;"><strong>集合時間：</strong>示意：第一天上午 10:00 集合。</p>
     </section>
+
+    <section class="vote" aria-labelledby="dinner-vote">
+      <h2 id="dinner-vote">晚餐投票</h2>
+      <p class="vote-lead">第一天晚餐想吃什麼？填暱稱、選一個，投出去就不能改囉。</p>
+      <form id="vote-form" class="vote-form">
+        <label class="vote-label" for="vote-nickname">暱稱</label>
+        <input id="vote-nickname" class="vote-input" type="text" maxlength="20" required autocomplete="nickname" placeholder="例如：阿嬤">
+        <fieldset class="vote-options">
+          <legend class="vote-label">選項</legend>
+          <div id="vote-choices"></div>
+        </fieldset>
+        <button id="vote-submit" class="vote-button" type="submit">投票</button>
+        <p id="vote-message" class="vote-message" role="status" aria-live="polite"></p>
+      </form>
+      <h3 class="vote-result-title">目前票數</h3>
+      <ul id="vote-results" class="vote-results"></ul>
+    </section>
     <footer>把步調放慢一點，台南就會多留一點時間給你。</footer>
   </main>
+
+  <style>
+    .vote { margin-top: 22px; padding: 20px 18px; border-radius: 20px; background: var(--paper); box-shadow: 0 5px 18px #3543330b; }
+    .vote h2 { margin: 0 0 6px; font-size: 1.2rem; }
+    .vote-lead { margin: 0 0 14px; color: #58645d; font-size: 15px; }
+    .vote-label { display: block; padding: 0; margin: 0 0 5px; color: var(--green); font-size: 14px; font-weight: 700; }
+    .vote-input { width: 100%; min-height: 46px; padding: 9px 12px; border: 1px solid #d6cfc1; border-radius: 12px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; }
+    .vote-options { margin: 14px 0 0; padding: 0; border: 0; }
+    .vote-choice { display: flex; align-items: center; gap: 10px; min-height: 46px; margin-top: 6px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 16px; cursor: pointer; }
+    .vote-choice input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+    .vote-button { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    .vote-button:disabled { opacity: .55; cursor: default; }
+    .vote-input:focus-visible, .vote-button:focus-visible, .vote-choice:focus-within { outline: 3px solid #b85e3e55; outline-offset: 2px; }
+    .vote-message { min-height: 1.7em; margin: 8px 0 0; color: #665943; font-size: 14px; }
+    .vote-result-title { margin: 12px 0 4px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .vote-results { margin: 0; padding: 0; list-style: none; }
+    .vote-results li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 15px; }
+    .vote-results .count { color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  </style>
+  <script>
+    (function () {
+      // 這裡只放「公開鑰匙」：本來就是給網頁用的，能做什麼由資料表的權限規則決定。
+      var SUPABASE_URL = "https://ezghejucqlaesbuqjyie.supabase.co";
+      var SUPABASE_PUBLISHABLE_KEY = "sb_publishable_8BMwOKak8EQwrLwnkADf8w_GVADAC1i";
+      var ENDPOINT = SUPABASE_URL + "/rest/v1/dinner_votes";
+      var CHOICES = ["海風小館（示意）", "牛肉湯（示意）", "鱔魚意麵（示意）", "都可以"];
+
+      var form = document.getElementById("vote-form");
+      var nickname = document.getElementById("vote-nickname");
+      var choicesBox = document.getElementById("vote-choices");
+      var button = document.getElementById("vote-submit");
+      var message = document.getElementById("vote-message");
+      var results = document.getElementById("vote-results");
+
+      function headers(extra) {
+        var h = { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: "Bearer " + SUPABASE_PUBLISHABLE_KEY };
+        for (var k in extra) h[k] = extra[k];
+        return h;
+      }
+
+      CHOICES.forEach(function (text, i) {
+        var label = document.createElement("label");
+        label.className = "vote-choice";
+        var radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "vote-choice";
+        radio.value = text;
+        radio.required = true;
+        if (i === 0) radio.checked = true;
+        label.appendChild(radio);
+        label.appendChild(document.createTextNode(text));
+        choicesBox.appendChild(label);
+      });
+
+      function render(counts) {
+        results.textContent = "";
+        CHOICES.forEach(function (text) {
+          var li = document.createElement("li");
+          var name = document.createElement("span");
+          name.textContent = text;
+          var count = document.createElement("span");
+          count.className = "count";
+          count.textContent = (counts[text] || 0) + " 票";
+          li.appendChild(name);
+          li.appendChild(count);
+          results.appendChild(li);
+        });
+      }
+
+      function loadResults() {
+        return fetch(ENDPOINT + "?select=choice", { headers: headers() })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .then(function (rows) {
+            var counts = {};
+            rows.forEach(function (row) { counts[row.choice] = (counts[row.choice] || 0) + 1; });
+            render(counts);
+          })
+          .catch(function () { message.textContent = "票數暫時讀不到，請稍後重新整理。"; });
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var name = nickname.value.trim();
+        var picked = form.querySelector("input[name='vote-choice']:checked");
+        if (!name) { message.textContent = "請先填暱稱。"; nickname.focus(); return; }
+        if (!picked) { message.textContent = "請選一個選項。"; return; }
+        button.disabled = true;
+        message.textContent = "送出中…";
+        fetch(ENDPOINT, {
+          method: "POST",
+          headers: headers({ "Content-Type": "application/json", Prefer: "return=minimal" }),
+          body: JSON.stringify({ nickname: name, choice: picked.value })
+        })
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.status);
+            message.textContent = "謝謝 " + name + "，已經投給「" + picked.value + "」。";
+            nickname.value = "";
+            return loadResults();
+          })
+          .catch(function () { message.textContent = "投票沒有成功，請再試一次。"; })
+          .then(function () { button.disabled = false; });
+      });
+
+      render({});
+      loadResults();
+    })();
+  </script>
 </body>
 </html>
 
